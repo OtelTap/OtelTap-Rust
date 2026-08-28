@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use prost::Message;
 
 use crate::OtelReceiver;
+use crate::ffi_functions_flags::*;
 
 // Atomic counter for generating unique handles for OtelReceivers
 static NEXT_HANDLE: AtomicU64 = AtomicU64::new(1);
@@ -35,6 +36,7 @@ static METRIC_BUFS: Mutex<BTreeMap<u64, Mutex<ReceiverAndBuf<Metric>>>> = Mutex:
 #[unsafe(no_mangle)]
 pub extern "C" fn oteltap_start_receiving_http_protobuf(
     port: u16,
+    flags: u32,
     reemit_traces_to: *const c_char,
     reemit_logs_to: *const c_char,
     reemit_metrics_to: *const c_char,
@@ -65,38 +67,75 @@ pub extern "C" fn oteltap_start_receiving_http_protobuf(
     let (log_sender, log_receiver) = mpsc::channel();
     let (metric_sender, metric_receiver) = mpsc::channel();
 
-    // Printer channels
-    let (trace_printer_sender, trace_printer_receiver) = mpsc::channel();
-    let (log_printer_sender, log_printer_receiver) = mpsc::channel();
-    let (metric_printer_sender, metric_printer_receiver) = mpsc::channel();
+    let mut traces_senders = vec![trace_sender];
+    let mut logs_senders = vec![log_sender];
+    let mut metrics_senders = vec![metric_sender];
 
+    // Shared opaque handle
+    let handle = NEXT_HANDLE.fetch_add(1, Ordering::Relaxed);
+
+    // Printing traces as NDJSON if the corresponding flag is set
+    let print_traces_thread = if flags & OTELTAP_PRINT_TRACES_AS_NDJSON != 0 {
+
+        // Starting trace printer thread
+        let (traces_printer_sender, trace_printer_receiver) = mpsc::channel();
+        traces_senders.push(traces_printer_sender);
+
+        Some(std::thread::spawn(move || print_receiver(trace_printer_receiver, |span| serde_json::to_string(&span))))
+
+    } else {
+        None
+    };
+
+    // Printing logs as NDJSON if the corresponding flag is set
+    let print_logs_thread = if flags & OTELTAP_PRINT_LOGS_AS_NDJSON != 0 {
+
+        // Starting log printer thread
+        let (logs_printer_sender, log_printer_receiver) = mpsc::channel();
+        logs_senders.push(logs_printer_sender);
+
+        Some(std::thread::spawn(move || print_receiver(log_printer_receiver, |log| serde_json::to_string(&log))))
+
+    } else {
+        None
+    };
+
+    // Printing metrics as NDJSON if the corresponding flag is set
+    let print_metrics_thread = if flags & OTELTAP_PRINT_METRICS_AS_NDJSON != 0 {
+
+        // Starting metric printer thread
+        let (metrics_printer_sender, metric_printer_receiver) = mpsc::channel();
+        metrics_senders.push(metrics_printer_sender);
+
+        Some(std::thread::spawn(move || print_receiver(metric_printer_receiver, |metric| serde_json::to_string(&metric))))
+
+    } else {
+        None
+    };
+
+    // Starting the OtelReceiver and storing it in the global map
     let otel_receiver = match OtelReceiver::start(
         port,
-        vec![trace_sender, trace_printer_sender],
-        vec![log_sender, log_printer_sender],
-        vec![metric_sender, metric_printer_sender],
+        traces_senders,
+        logs_senders,
+        metrics_senders,
         reemit_traces_to.as_deref(),
         reemit_logs_to.as_deref(),
         reemit_metrics_to.as_deref()
     ) {
         Ok(receiver) => receiver,
-        Err(_code) => return -1,
+        Err(_code) => return -1, // Failed to start the receiver
     };
-
-    // Start printing into console
-    let print_traces_thread = std::thread::spawn(move || print_receiver(trace_printer_receiver, |span| serde_json::to_string(&span)));
-    let print_logs_thread = std::thread::spawn(move || print_receiver(log_printer_receiver, |log| serde_json::to_string(&log)));
-    let print_metrics_thread = std::thread::spawn(move || print_receiver(metric_printer_receiver, |metric| serde_json::to_string(&metric)));
-
-    let handle = NEXT_HANDLE.fetch_add(1, Ordering::Relaxed);
     OTEL_RECEIVERS.lock().unwrap().insert(handle, Mutex::new(otel_receiver));
-    TRACE_BUFS.lock().unwrap().insert(handle, Mutex::new(ReceiverAndBuf { receiver: trace_receiver, buf: None, print_thread: Some(print_traces_thread) }));
-    LOG_BUFS.lock().unwrap().insert(handle, Mutex::new(ReceiverAndBuf { receiver: log_receiver, buf: None, print_thread: Some(print_logs_thread) }));
-    METRIC_BUFS.lock().unwrap().insert(handle, Mutex::new(ReceiverAndBuf { receiver: metric_receiver, buf: None, print_thread: Some(print_metrics_thread) }));
+
+    // Storing buffers, receivers, and printer threads in the global maps
+    TRACE_BUFS.lock().unwrap().insert(handle, Mutex::new(ReceiverAndBuf { receiver: trace_receiver, buf: None, print_thread: print_traces_thread }));
+    LOG_BUFS.lock().unwrap().insert(handle, Mutex::new(ReceiverAndBuf { receiver: log_receiver, buf: None, print_thread: print_logs_thread }));
+    METRIC_BUFS.lock().unwrap().insert(handle, Mutex::new(ReceiverAndBuf { receiver: metric_receiver, buf: None, print_thread: print_metrics_thread }));
 
     unsafe { *out_handle = handle };
 
-    0
+    0 // Successfully started the receiver
 }
 
 // Stops the OtelTap receiver associated with the given handle, cleaning up resources.
@@ -106,6 +145,8 @@ pub extern "C" fn oteltap_stop_receiving(handle: u64) -> i32 {
     let mut receivers = OTEL_RECEIVERS.lock().unwrap();
     if receivers.remove(&handle).is_some() {
         
+        // Receiver is stopped by now. Joining printer threads.
+
         let trace_buf = TRACE_BUFS.lock().unwrap().remove(&handle);
         if let Some(t) = trace_buf {
             if let Some(print_thread) = t.lock().unwrap().print_thread.take() {

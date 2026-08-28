@@ -43,7 +43,7 @@ impl OtelReceiver {
 
     pub fn start(
         port: u16,
-        trace_senders: Vec<Sender<Span>>,
+        traces_senders: Vec<Sender<Span>>,
         logs_senders: Vec<Sender<LogRecord>>,
         metrics_senders: Vec<Sender<Metric>>,
         reemit_traces_to: Option<&str>,
@@ -71,7 +71,7 @@ impl OtelReceiver {
         // Serving requests in the thread pool
         runtime.spawn(Self::serve(
             listener,
-            Arc::from(trace_senders),
+            Arc::from(traces_senders),
             Arc::from(logs_senders),
             Arc::from(metrics_senders),
             trace_reemitter.map(Arc::new),
@@ -85,7 +85,7 @@ impl OtelReceiver {
     // Serve incoming connections and spawn a new task for each connection
     async fn serve(
         listener: TcpListener,
-        trace_senders: Arc<[Sender<Span>]>,
+        traces_senders: Arc<[Sender<Span>]>,
         logs_senders: Arc<[Sender<LogRecord>]>,
         metrics_senders: Arc<[Sender<Metric>]>,
         trace_reemitter: Option<Arc<OtelReemitter>>,
@@ -103,7 +103,7 @@ impl OtelReceiver {
                 },
             };
             let io = TokioIo::new(stream);
-            let trace_senders = trace_senders.clone();
+            let traces_senders = traces_senders.clone();
             let logs_senders = logs_senders.clone();
             let metrics_senders = metrics_senders.clone();
             let trace_reemitter = trace_reemitter.clone();
@@ -117,7 +117,7 @@ impl OtelReceiver {
                         io,
                         service_fn(|r| Self::handle(
                             r,
-                            trace_senders.clone(),
+                            traces_senders.clone(),
                             logs_senders.clone(),
                             metrics_senders.clone(),
                             trace_reemitter.clone(),
@@ -136,7 +136,7 @@ impl OtelReceiver {
     // Handle incoming HTTP requests and route them to the appropriate handler based on the request path
     async fn handle(
         req: Request<Incoming>,
-        trace_senders: Arc<[Sender<Span>]>,
+        traces_senders: Arc<[Sender<Span>]>,
         logs_senders: Arc<[Sender<LogRecord>]>,
         metrics_senders: Arc<[Sender<Metric>]>,
         trace_reemitter: Option<Arc<OtelReemitter>>,
@@ -146,7 +146,7 @@ impl OtelReceiver {
 
         match(req.method(), req.uri().path()) {
             (&hyper::Method::POST, "/v1/traces") => 
-                Self::handle_traces(req, trace_senders.clone(), trace_reemitter.clone()).await,
+                Self::handle_traces(req, traces_senders.clone(), trace_reemitter.clone()).await,
             (&hyper::Method::POST, "/v1/logs") => 
                 Self::handle_logs(req, logs_senders.clone(), logs_reemitter.clone()).await,
             (&hyper::Method::POST, "/v1/metrics") => 

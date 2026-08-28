@@ -39,13 +39,25 @@ All exported functions use the C ABI (`extern "C"`, `#[no_mangle]`) and return a
 
 | Function | Purpose |
 |---|---|
-| `oteltap_start_receiving_http_protobuf(port, reemit_traces_to, reemit_logs_to, reemit_metrics_to, out_handle)` | Starts a receiver on `port`. Re-emit arguments are optional (nullable) C strings — a URL per signal type, or `NULL` to skip re-emission for that signal. Writes the new handle to `out_handle`. |
+| `oteltap_start_receiving_http_protobuf(port, flags, reemit_traces_to, reemit_logs_to, reemit_metrics_to, out_handle)` | Starts a receiver on `port`. `flags` is a bitmask (see below) controlling console printing. Re-emit arguments are optional (nullable) C strings — a URL per signal type, or `NULL` to skip re-emission for that signal. Writes the new handle to `out_handle`. |
 | `oteltap_stop_receiving(handle)` | Stops the receiver for `handle`, closes the listening socket, and waits for any in-flight printing to finish. |
 | `oteltap_poll_trace(handle, timeout_ms, out_buf, out_len)` | Blocks up to `timeout_ms` for the next received `Span`, returned as a protobuf-encoded buffer (`out_buf`/`out_len`). |
 | `oteltap_poll_log(handle, timeout_ms, out_buf, out_len)` | Same as above, for `LogRecord`. |
 | `oteltap_poll_metric(handle, timeout_ms, out_buf, out_len)` | Same as above, for `Metric`. |
 
 Polled data is returned as raw OTLP protobuf bytes (the same wire format `opentelemetry-proto` defines), so any caller with standard OTLP protobuf bindings for their language can decode it directly.
+
+### Print flags
+
+`flags` is a bitmask passed to `oteltap_start_receiving_http_protobuf`, controlling which signal types get printed to the console as NDJSON. Combine values with bitwise OR; pass `0` to disable all console printing.
+
+| Constant | Value | Effect |
+|---|---|---|
+| `OTELTAP_PRINT_TRACES_AS_NDJSON` | `1 << 0` | Print each received span as one NDJSON line. |
+| `OTELTAP_PRINT_LOGS_AS_NDJSON` | `1 << 1` | Print each received log record as one NDJSON line. |
+| `OTELTAP_PRINT_METRICS_AS_NDJSON` | `1 << 2` | Print each received metric as one NDJSON line. |
+
+These constants are defined in `src/ffi_functions_flags.rs` and are reserved as a growing, extensible bitset — future flags (e.g. printing traces as human-readable Gantt charts) can be added as new bits without breaking existing callers or changing the function signature.
 
 > This crate builds as both an `rlib` (for use from Rust) and a `cdylib` (for consumption from other languages through FFI) — see `Cargo.toml`.
 
