@@ -49,7 +49,7 @@ impl OtelReceiver {
         reemit_traces_to: Option<&str>,
         reemit_logs_to: Option<&str>,
         reemit_metrics_to: Option<&str>
-    ) -> std::io::Result<OtelReceiver> {
+    ) -> std::io::Result<Self> {
 
         let trace_reemitter = reemit_traces_to.map(OtelReemitter::new).transpose()?;
         let logs_reemitter = reemit_logs_to.map(OtelReemitter::new).transpose()?;
@@ -79,7 +79,7 @@ impl OtelReceiver {
             metrics_reemitter.map(Arc::new),
         ));
 
-        Ok(OtelReceiver { runtime })
+        Ok(Self { runtime })
     }
 
     // Serve incoming connections and spawn a new task for each connection
