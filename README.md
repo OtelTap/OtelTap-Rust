@@ -2,6 +2,15 @@
 
 **OtelTap** is a Rust-based, embeddable OTLP (OpenTelemetry Protocol) receiver designed to be driven from **any language via FFI**. It's meant to be dropped straight into your end-to-end / integration test suites so tests can **await and assert on real telemetry** (traces, logs, metrics) emitted by the system under test — instead of guessing timing or mocking the OTel SDK.
 
+## Built for agentic AI development
+
+OtelTap is designed with **AI coding agents ("copilots") as first-class users**, not just an afterthought. Telemetry is one of the richest sources of ground truth about what a system actually did — far more reliable than logs alone or guessing from source code — and OtelTap is built so an agent can close the loop on its own, without a human relaying data back and forth:
+
+1. **Run** an integration/e2e test that exercises the system under test.
+2. **See telemetry instantly** in the console as NDJSON, right in the same tool-call output the agent already reads — no separate viewer, no polling a dashboard, no screenshots.
+3. **Infer** what actually happened — which spans fired, what attributes/status/errors show up, what got logged, what metrics moved — directly from that structured output.
+4. **Apply code changes** based on that evidence, immediately, and re-run to verify — all within the same agentic loop, with re-emission ensuring humans watching the normal observability stack still see the exact same picture.
+
 ## Why
 
 When testing a service that emits OpenTelemetry data, you usually want to:
