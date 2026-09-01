@@ -48,7 +48,8 @@ impl OtelReceiver {
         metrics_senders: Vec<Sender<Metric>>,
         reemit_traces_to: Option<&str>,
         reemit_logs_to: Option<&str>,
-        reemit_metrics_to: Option<&str>
+        reemit_metrics_to: Option<&str>,
+        listen_on_all_interfaces: bool,
     ) -> std::io::Result<Self> {
 
         let trace_reemitter = reemit_traces_to.map(OtelReemitter::new).transpose()?;
@@ -64,7 +65,12 @@ impl OtelReceiver {
 
         let runtime = Runtime::new()?;
 
-        let addr = SocketAddr::from(([127, 0, 0, 1], port));
+        let addr = if listen_on_all_interfaces {
+            SocketAddr::from(([0, 0, 0, 0], port))
+        } else {
+            SocketAddr::from(([127, 0, 0, 1], port))
+        };
+        
         // Synchronously try to start listening, return an error if it fails (e.g., port already in use)
         let listener = runtime.block_on(TcpListener::bind(addr))?;
 

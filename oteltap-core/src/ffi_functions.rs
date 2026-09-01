@@ -121,7 +121,8 @@ pub extern "C" fn oteltap_start_receiving_http_protobuf(
         metrics_senders,
         reemit_traces_to.as_deref(),
         reemit_logs_to.as_deref(),
-        reemit_metrics_to.as_deref()
+        reemit_metrics_to.as_deref(),
+        flags & OTELTAP_LISTEN_ON_ALL_INTERFACES != 0
     ) {
         Ok(receiver) => receiver,
         Err(_code) => return -1, // Failed to start the receiver
