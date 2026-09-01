@@ -29,7 +29,7 @@ OtelTap does all of this in a single embeddable component:
 
 ## How it works
 
-Each receiver listens on `127.0.0.1:<port>` for standard OTLP/HTTP protobuf requests (`/v1/traces`, `/v1/logs`, `/v1/metrics`), decodes them, and fans each item out three ways: into a channel polled via FFI, to a background NDJSON printer thread, and (optionally, per signal type) to another OTLP/HTTP endpoint for re-emission. An opaque `u64` handle identifies each running receiver, so one process can host multiple independent taps.
+Each receiver listens on `127.0.0.1:<port>` by default (or `0.0.0.0:<port>`, all interfaces, if the `OTELTAP_LISTEN_ON_ALL_INTERFACES` flag is set) for standard OTLP/HTTP protobuf requests (`/v1/traces`, `/v1/logs`, `/v1/metrics`), decodes them, and fans each item out three ways: into a channel polled via FFI, to a background NDJSON printer thread, and (optionally, per signal type) to another OTLP/HTTP endpoint for re-emission. An opaque `u64` handle identifies each running receiver, so one process can host multiple independent taps.
 
 > **Note:** only the **OTLP/HTTP protobuf** transport is supported (`Content-Type: application/x-protobuf`) — this is the recommended encoding for OTLP over HTTP (the OTLP spec treats HTTP/JSON as debug-only). OTLP/gRPC is not implemented.
 
@@ -47,15 +47,16 @@ All exported functions use the C ABI (`extern "C"`, `#[no_mangle]`) and return a
 
 Polled data is returned as raw OTLP protobuf bytes (the same wire format `opentelemetry-proto` defines), so any caller with standard OTLP protobuf bindings for their language can decode it directly.
 
-### Print flags
+### Flags
 
-`flags` is a bitmask passed to `oteltap_start_receiving_http_protobuf`, controlling which signal types get printed to the console as NDJSON. Combine values with bitwise OR; pass `0` to disable all console printing.
+`flags` is a bitmask passed to `oteltap_start_receiving_http_protobuf`, controlling which signal types get printed to the console as NDJSON, as well as other receiver behavior. Combine values with bitwise OR; pass `0` for the default behavior (no console printing, listen on `127.0.0.1` only).
 
 | Constant | Value | Effect |
 |---|---|---|
 | `OTELTAP_PRINT_TRACES_AS_NDJSON` | `1 << 0` | Print each received span as one NDJSON line. |
 | `OTELTAP_PRINT_LOGS_AS_NDJSON` | `1 << 1` | Print each received log record as one NDJSON line. |
 | `OTELTAP_PRINT_METRICS_AS_NDJSON` | `1 << 2` | Print each received metric as one NDJSON line. |
+| `OTELTAP_LISTEN_ON_ALL_INTERFACES` | `1 << 8` | Bind the receiver to `0.0.0.0:<port>` (all network interfaces) instead of the default `127.0.0.1:<port>`. |
 
 These constants are defined in `src/ffi_functions_flags.rs` and are reserved as a growing, extensible bitset — future flags (e.g. printing traces as human-readable Gantt charts) can be added as new bits without breaking existing callers or changing the function signature.
 
